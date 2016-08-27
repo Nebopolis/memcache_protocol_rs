@@ -1,6 +1,5 @@
 extern crate memcache_protocol;
 use memcache_protocol::*;
-use std::str;
 
 // Response header:
 //   Byte/     0       |       1       |       2       |       3       |
