@@ -1,47 +1,7 @@
 extern crate memcache_protocol;
 use memcache_protocol::*;
-
-// Response header:
-//   Byte/     0       |       1       |       2       |       3       |
-//      /              |               |               |               |
-//     |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-//     +---------------+---------------+---------------+---------------+
-//    0| Magic         | Opcode        | Key Length                    |
-//     +---------------+---------------+---------------+---------------+
-//    4| Extras length | Data type     | Status                        |
-//     +---------------+---------------+---------------+---------------+
-//    8| Total body length                                             |
-//     +---------------+---------------+---------------+---------------+
-//   12| Opaque                                                        |
-//     +---------------+---------------+---------------+---------------+
-//   16| CAS                                                           |
-//     |                                                               |
-//     +---------------+---------------+---------------+---------------+
-//     Total 24 bytes
-
-macro_rules! parsed_packet {
-  ($test:ident, $packet:expr, $magic:ident, $opcode:ident, $key_len:expr,
-    $extra_len:expr, $status:ident, $body_len:expr, $opaque:expr,
-    $cas:expr, $extras:expr, $key:expr, $body:expr) => (
-    #[test]
-    fn $test() {
-      let packet_contents: &[u8] = $packet;
-      let (remaining, packet) = packet(packet_contents).unwrap();
-      assert_eq!(&b""[..], remaining);
-      assert_eq!(Magic::$magic, packet.header.magic);
-      assert_eq!(Opcode::$opcode, packet.header.opcode);
-      assert_eq!($key_len, packet.header.key_length);
-      assert_eq!($extra_len, packet.header.extras_length);
-      assert_eq!(ResponseStatus::$status, packet.header.status);
-      assert_eq!($body_len, packet.header.body_length);
-      assert_eq!($opaque, packet.header.opaque);
-      assert_eq!($cas, packet.header.cas);
-      assert_eq!($extras, packet.extras);
-      assert_eq!($key, packet.key);
-      assert_eq!($body, packet.body);
-    }
-  );
-}
+#[macro_use]
+mod macros;
 
 // The following figure illustrates the packet layout for a packet with
 // an error message.
@@ -151,7 +111,6 @@ parsed_packet!(get_request,
   0,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000005
   5,
 // Opaque       (12-15): 0x00000000
@@ -344,7 +303,6 @@ parsed_packet!(add_request,
   8,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000012
   18,
 // Opaque       (12-15): 0x00000000
@@ -455,7 +413,6 @@ parsed_packet!(delete_request,
   0,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000005
   5,
 // Opaque       (12-15): 0x00000000
@@ -527,7 +484,6 @@ parsed_packet!(increment_request,
   20,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x0000001b
   27,
 // Opaque       (12-15): 0x00000000
@@ -640,7 +596,6 @@ parsed_packet!(quit_request,
   0,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000000
   0,
 // Opaque       (12-15): 0x00000000
@@ -694,7 +649,6 @@ parsed_packet!(flush_request,
   4,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000004
   4,
 // Opaque       (12-15): 0x00000000
@@ -746,7 +700,6 @@ parsed_packet!(noop_request,
   0,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000000
   0,
 // Opaque       (12-15): 0x00000000
@@ -797,7 +750,6 @@ parsed_packet!(version_request,
   0,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000000
   0,
 // Opaque       (12-15): 0x00000000
@@ -909,7 +861,6 @@ parsed_packet!(append_request,
   0,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000006
   6,
 // Opaque       (12-15): 0x00000000
@@ -960,7 +911,6 @@ parsed_packet!(stat_request,
   0,
 // Data type    (5)    : 0x00
 // Reserved     (6,7)  : 0x0000
-  NoError,
 // Total body   (8-11) : 0x00000000
   0,
 // Opaque       (12-15): 0x00000000

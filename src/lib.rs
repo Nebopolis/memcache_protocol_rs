@@ -1,11 +1,8 @@
+#![feature(conservative_impl_trait)]
+
 #[macro_use]
 extern crate nom;
-
-#[derive(Debug,PartialEq,Eq)]
-pub enum Magic {
-    Request = 0x80,
-    Response = 0x81,
-}
+use nom::*;
 
 #[derive(Debug,PartialEq,Eq)]
 pub enum ResponseStatus {
@@ -23,8 +20,8 @@ pub enum ResponseStatus {
     OutOfMemory = 0x0082,
     NotSupported = 0x0083,
     InternalError = 0x0084,
-    Busy          = 0x0085,
-    TemporaryFailure = 0x0086
+    Busy = 0x0085,
+    TemporaryFailure = 0x0086,
 }
 
 #[derive(Debug,PartialEq,Eq)]
@@ -63,114 +60,185 @@ pub enum DataType {
     Raw,
 }
 
-named!(magic<Magic>, alt_complete!(
-  tag_bytes!([0x80]) => {|_| Magic::Request}
- |tag_bytes!([0x81]) => {|_| Magic::Response}
-  )
-);
+named!(request, tag!(b"\x80"));
+named!(response, tag!(b"\x81"));
 
-named!(response_status<ResponseStatus>, alt_complete!(
-  tag_bytes!([0x00,0x00]) => {|_| ResponseStatus::NoError}
- |tag_bytes!([0x00, 0x01]) => {|_| ResponseStatus::KeyNotFound}
- |tag_bytes!([0x00, 0x02]) => {|_| ResponseStatus::KeyExists}
- |tag_bytes!([0x00, 0x03]) => {|_| ResponseStatus::ValueTooLarge}
- |tag_bytes!([0x00, 0x04]) => {|_| ResponseStatus::InvalidArguements}
- |tag_bytes!([0x00, 0x05]) => {|_| ResponseStatus::NotStored}
- |tag_bytes!([0x00, 0x06]) => {|_| ResponseStatus::NonNumeric}
- |tag_bytes!([0x00, 0x81]) => {|_| ResponseStatus::UnknownCommand}
- |tag_bytes!([0x00, 0x82]) => {|_| ResponseStatus::OutOfMemory}
-  )
-);
+named!(response_status<ResponseStatus>, switch!(take!(2),
+  b"\x00\x00" => value!(ResponseStatus::NoError)
+ |b"\x00\x01" => value!(ResponseStatus::KeyNotFound)
+ |b"\x00\x02" => value!(ResponseStatus::KeyExists)
+ |b"\x00\x03" => value!(ResponseStatus::ValueTooLarge)
+ |b"\x00\x04" => value!(ResponseStatus::InvalidArguements)
+ |b"\x00\x05" => value!(ResponseStatus::NotStored)
+ |b"\x00\x06" => value!(ResponseStatus::NonNumeric)
+ |b"\x00\x81" => value!(ResponseStatus::UnknownCommand)
+ |b"\x00\x82" => value!(ResponseStatus::OutOfMemory)
+));
 
-named!(opcode<Opcode>, alt_complete!(
-  tag_bytes!([0x00]) => {|_| Opcode::Get}
- |tag_bytes!([0x01]) => {|_| Opcode::Set}
- |tag_bytes!([0x02]) => {|_| Opcode::Add}
- |tag_bytes!([0x03]) => {|_| Opcode::Replace}
- |tag_bytes!([0x04]) => {|_| Opcode::Delete}
- |tag_bytes!([0x05]) => {|_| Opcode::Increment}
- |tag_bytes!([0x06]) => {|_| Opcode::Decrement}
- |tag_bytes!([0x07]) => {|_| Opcode::Quit}
- |tag_bytes!([0x08]) => {|_| Opcode::Flush}
- |tag_bytes!([0x09]) => {|_| Opcode::GetQ}
- |tag_bytes!([0x0A]) => {|_| Opcode::Noop}
- |tag_bytes!([0x0B]) => {|_| Opcode::Version}
- |tag_bytes!([0x0C]) => {|_| Opcode::GetK}
- |tag_bytes!([0x0D]) => {|_| Opcode::GetKQ}
- |tag_bytes!([0x0E]) => {|_| Opcode::Append}
- |tag_bytes!([0x0F]) => {|_| Opcode::Prepend}
- |tag_bytes!([0x10]) => {|_| Opcode::Stat}
- |tag_bytes!([0x11]) => {|_| Opcode::SetQ}
- |tag_bytes!([0x12]) => {|_| Opcode::AddQ}
- |tag_bytes!([0x13]) => {|_| Opcode::ReplaceQ}
- |tag_bytes!([0x14]) => {|_| Opcode::DeleteQ}
- |tag_bytes!([0x15]) => {|_| Opcode::IncrementQ}
- |tag_bytes!([0x16]) => {|_| Opcode::DecrementQ}
- |tag_bytes!([0x17]) => {|_| Opcode::QuitQ}
- |tag_bytes!([0x18]) => {|_| Opcode::FlushQ}
- |tag_bytes!([0x19]) => {|_| Opcode::AppendQ}
- |tag_bytes!([0x1A]) => {|_| Opcode::PrependQ}
+named!(opcode<Opcode>, switch!(take!(1),
+  b"\x00" => value!(Opcode::Get)
+ |b"\x01" => value!(Opcode::Set)
+ |b"\x02" => value!(Opcode::Add)
+ |b"\x03" => value!(Opcode::Replace)
+ |b"\x04" => value!(Opcode::Delete)
+ |b"\x05" => value!(Opcode::Increment)
+ |b"\x06" => value!(Opcode::Decrement)
+ |b"\x07" => value!(Opcode::Quit)
+ |b"\x08" => value!(Opcode::Flush)
+ |b"\x09" => value!(Opcode::GetQ)
+ |b"\x0A" => value!(Opcode::Noop)
+ |b"\x0B" => value!(Opcode::Version)
+ |b"\x0C" => value!(Opcode::GetK)
+ |b"\x0D" => value!(Opcode::GetKQ)
+ |b"\x0E" => value!(Opcode::Append)
+ |b"\x0F" => value!(Opcode::Prepend)
+ |b"\x10" => value!(Opcode::Stat)
+ |b"\x11" => value!(Opcode::SetQ)
+ |b"\x12" => value!(Opcode::AddQ)
+ |b"\x13" => value!(Opcode::ReplaceQ)
+ |b"\x14" => value!(Opcode::DeleteQ)
+ |b"\x15" => value!(Opcode::IncrementQ)
+ |b"\x16" => value!(Opcode::DecrementQ)
+ |b"\x17" => value!(Opcode::QuitQ)
+ |b"\x18" => value!(Opcode::FlushQ)
+ |b"\x19" => value!(Opcode::AppendQ)
+ |b"\x1A" => value!(Opcode::PrependQ)
   )
 );
 
 #[derive(Debug,PartialEq,Eq)]
-pub struct Header {
-    pub magic: Magic,
+pub struct ResponseHeader {
     pub opcode: Opcode,
     pub key_length: u16,
     pub extras_length: u8,
-    data_type: DataType,  //DataType::Raw is the only supported data type right now
+    data_type: DataType, // DataType::Raw is the only supported data type right now
     pub status: ResponseStatus,
     pub body_length: u32,
     pub opaque: u32,
     pub cas: u64,
 }
 
-//TODO: Variant of Header for request and response,
-// one with a ResponseStatus and one without the field
-named!(header<Header>, chain!(
-  magic: magic ~
-  opcode: opcode ~
-  key_length: u16!(true) ~
-  extras_length: take!(1) ~
-  take!(1) ~
-  status: response_status ~
-  body_length: u32!(true) ~
-  opaque: u32!(true) ~
-  cas: u64!(true) ,
-  || {
-    Header {
-      magic: magic,
-      opcode: opcode,
-      key_length: key_length,
-      extras_length: extras_length[0],
-      data_type: DataType::Raw,
-      status: status,
-      body_length: body_length,
-      opaque: opaque,
-      cas: cas
-    }
-  }
-));
-
-pub struct Packet<'a> {
-  pub header: Header,
-  pub extras: &'a[u8],
-  pub key:    &'a[u8],
-  pub body:   &'a[u8]
+#[derive(Debug,PartialEq,Eq)]
+pub struct RequestHeader {
+    pub opcode: Opcode,
+    pub key_length: u16,
+    pub extras_length: u8,
+    data_type: DataType, // DataType::Raw is the only supported data type right now
+    pub vbucket_id: u16,
+    pub body_length: u32,
+    pub opaque: u32,
+    pub cas: u64,
 }
 
-named!(pub packet<Packet>, complete!(chain!(
-  header: header ~
-  extras: take!(header.extras_length) ~
-  key:    take!(header.key_length) ~
-  body:   take!(header.body_length - header.extras_length as u32 - header.key_length as u32),
-  || {
-    Packet {
-      header: header,
-      extras: extras,
-      key: key,
-      body: body
+named!(header_fields<(u16, u8, &[u8], &[u8], u32, u32, u64)>, tuple!(
+  be_u16,
+  be_u8,
+  take!(1),
+  take!(2),
+  be_u32,
+  be_u32,
+  be_u64
+));
+
+#[allow(dead_code)]
+fn request_header(input: &[u8]) -> IResult<&[u8], HeaderType> {
+    let (input, opcode) = try_parse!(input, opcode);
+    let (remaining, (key_length, extras_length, _, vbucket, body_length, opaque, cas)) =
+        try_parse!(input, header_fields);
+    let (_, vbucket) = try_parse!(vbucket, be_u16);
+    let req = RequestHeader {
+                      opcode: opcode,
+                      key_length: key_length,
+                      extras_length: extras_length,
+                      data_type: DataType::Raw,
+                      vbucket_id: vbucket,
+                      body_length: body_length,
+                      opaque: opaque,
+                      cas: cas,
+                  };
+    IResult::Done(remaining,
+                  HeaderType::Request(req))
+}
+
+fn response_header(input: &[u8]) -> IResult<&[u8], HeaderType> {
+    let (input, opcode) = try_parse!(input, opcode);
+    let (input, (key_length, extras_length, _, status, body_length, opaque, cas)) =
+        try_parse!(input, header_fields);
+    let (_, status) = try_parse!(status, response_status);
+    IResult::Done(input,
+                  HeaderType::Response(ResponseHeader {
+                      opcode: opcode,
+                      key_length: key_length,
+                      extras_length: extras_length,
+                      data_type: DataType::Raw,
+                      status: status,
+                      body_length: body_length,
+                      opaque: opaque,
+                      cas: cas,
+                  }))
+}
+
+
+// TODO: Variant of Header for request and response,
+// one with a ResponseStatus and one without the field
+named!(header<HeaderType>, alt!(
+  preceded!(response, response_header) | preceded!(request, request_header)
+));
+
+#[derive(Debug,PartialEq,Eq)]
+pub enum HeaderType {
+  Request(RequestHeader),
+  Response(ResponseHeader)
+}
+
+#[derive(Debug,PartialEq,Eq)]
+pub struct Packet<'a, HeaderType> {
+    pub header: HeaderType,
+    pub extras: &'a [u8],
+    pub key: &'a [u8],
+    pub body: &'a [u8],
+}
+
+pub trait Header {
+  fn extras_length(&self) -> u8;
+  fn key_length(&self) -> u16;
+  fn body_length(&self) -> u32;
+}
+
+
+impl Header for HeaderType {
+  fn extras_length(&self) -> u8 {
+    match self {
+      &HeaderType::Request(ref r) => r.extras_length,
+      &HeaderType::Response(ref r) => r.extras_length
     }
   }
-)));
+    fn key_length(&self) -> u16 {
+    match self {
+      &HeaderType::Request(ref r) => r.key_length,
+      &HeaderType::Response(ref r) => r.key_length
+    }
+  }
+
+  fn body_length(&self) -> u32 {
+    match self {
+      &HeaderType::Request(ref r) => r.body_length,
+      &HeaderType::Response(ref r) => r.body_length
+    }
+  }
+}
+
+pub fn packet<'a>(input: &'a [u8]) -> IResult<&[u8], Packet<HeaderType>> {
+    let (input, header): (_, _) = try_parse!(input, header);
+    let (input, extras)   = try_parse!(input, take!(header.extras_length() as usize));
+    let (input, key)   = try_parse!(input, take!(header.key_length() as usize));
+    let (input, body)   = try_parse!(input, take!(header.body_length() - header.key_length() as u32 - header.extras_length() as u32));
+    IResult::Done(input,
+                  Packet {
+                    header: header,
+                    extras: extras,
+                    key: key,
+                    body: body
+                  })
+}
+
