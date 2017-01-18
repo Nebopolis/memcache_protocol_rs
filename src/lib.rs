@@ -1,3 +1,8 @@
+#![feature(test)]
+#![feature(alloc_system)]
+extern crate alloc_system;
+extern crate test;
+
 #[macro_use]
 extern crate nom;
 use nom::*;
@@ -238,5 +243,32 @@ pub fn packet<'a>(input: &'a [u8]) -> IResult<&[u8], Packet<HeaderType>> {
                     key: key,
                     body: body
                   })
+}
+
+#[cfg(test)]
+mod bench {
+  use super::*;
+  use test::Bencher;
+
+  #[bench]
+  fn bench_parse_increment_request(b: &mut Bencher) {
+    const PACKET: &'static [u8] = &[0x80, 0x05, 0x00, 0x07,
+      0x14, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x1b,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x01,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x0e, 0x10,
+      b'c', b'o', b'u', b'n',
+      b't', b'e', b'r'];
+    b.iter(|| {
+      let y = packet(PACKET).unwrap();
+      test::black_box(y);
+    });
+  }
 }
 
