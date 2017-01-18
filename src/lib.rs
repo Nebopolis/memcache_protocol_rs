@@ -1,6 +1,35 @@
+#![feature(test)]
+#![feature(alloc_system)]
+extern crate alloc_system;
+
 #[macro_use]
 extern crate nom;
+extern crate test;
+extern crate futures;
+extern crate tokio_core;
+extern crate tokio_proto;
+extern crate tokio_service;
+
 use nom::*;
+use tokio_core::io::{Codec, EasyBuf};
+use std::io;
+
+pub struct MemcacheCodec;
+
+impl Codec for MemcacheCodec {
+  type In = Packet;
+  type Out = Packet;
+  fn decode(&mut self, buf: &mut EasyBuf) -> io::Result<Option<Self::In>> {
+    match packet(buf).to_result() {
+      Ok(p) => Ok(Some(p)),
+      Err(_) => Ok(None)
+    }
+  }
+
+  fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
+    Ok(())
+  }
+}
 
 #[derive(Debug,PartialEq,Eq)]
 pub enum ResponseStatus {
@@ -189,54 +218,88 @@ pub enum HeaderType {
   Response(ResponseHeader)
 }
 
-#[derive(Debug,PartialEq,Eq)]
-pub struct Packet<'a, HeaderType> {
+pub struct Packet {
     pub header: HeaderType,
-    pub extras: &'a [u8],
-    pub key: &'a [u8],
-    pub body: &'a [u8],
+    pub extras: EasyBuf,
+    pub key: EasyBuf,
+    pub body: EasyBuf,
 }
 
 pub trait Header {
-  fn extras_length(&self) -> u8;
-  fn key_length(&self) -> u16;
-  fn body_length(&self) -> u32;
+  fn extras_length(&self) -> usize;
+  fn key_length(&self) -> usize;
+  fn body_length(&self) -> usize;
 }
 
 
 impl Header for HeaderType {
-  fn extras_length(&self) -> u8 {
+  fn extras_length(&self) -> usize {
     match self {
-      &HeaderType::Request(ref r) => r.extras_length,
-      &HeaderType::Response(ref r) => r.extras_length
+      &HeaderType::Request(ref r) => r.extras_length as usize,
+      &HeaderType::Response(ref r) => r.extras_length as usize
     }
   }
-    fn key_length(&self) -> u16 {
+    fn key_length(&self) -> usize {
     match self {
-      &HeaderType::Request(ref r) => r.key_length,
-      &HeaderType::Response(ref r) => r.key_length
+      &HeaderType::Request(ref r) => r.key_length as usize,
+      &HeaderType::Response(ref r) => r.key_length as usize
     }
   }
 
-  fn body_length(&self) -> u32 {
-    match self {
-      &HeaderType::Request(ref r) => r.body_length,
-      &HeaderType::Response(ref r) => r.body_length
-    }
+  fn body_length(&self) -> usize {
+    let full_body = match self {
+      &HeaderType::Request(ref r) => r.body_length as usize,
+      &HeaderType::Response(ref r) => r.body_length as usize
+    };
+    full_body - self.key_length() - self.extras_length()
   }
 }
 
-pub fn packet<'a>(input: &'a [u8]) -> IResult<&[u8], Packet<HeaderType>> {
-    let (input, header): (_, _) = try_parse!(input, header);
-    let (input, extras)   = try_parse!(input, take!(header.extras_length() as usize));
-    let (input, key)   = try_parse!(input, take!(header.key_length() as usize));
-    let (input, body)   = try_parse!(input, take!(header.body_length() - header.key_length() as u32 - header.extras_length() as u32));
-    IResult::Done(input,
+pub fn packet(input: &mut EasyBuf) -> IResult<&[u8], Packet> {
+    let (_, header) = try_parse!(input.drain_to(24).as_slice(), header);
+    let extras = input.split_off(header.extras_length());
+    let key = input.split_off(header.key_length());
+    let body = input.split_off(header.body_length());
+    IResult::Done(input.as_slice(),
                   Packet {
                     header: header,
                     extras: extras,
                     key: key,
                     body: body
                   })
+}
+
+#[cfg(test)]
+mod bench {
+  use super::*;
+  use test::Bencher;
+
+  #[bench]
+  fn bench_parse_increment_request(b: &mut Bencher) {
+    let mut packet_contents =
+ vec![0x80, 0x05, 0x00, 0x07,
+      0x14, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x1b,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x01,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x0e, 0x10,
+      b'c', b'o', b'u', b'n',
+      b't', b'e', b'r'];
+    let buffer: &mut EasyBuf = &mut EasyBuf::from(packet_contents);
+    let mut buf_vec = Vec::new();
+    for _ in 1..1000000 {
+      buf_vec.push(buffer.clone())
+    }
+    b.iter(|| {
+      let mut buf = buf_vec.pop().unwrap();
+      let y = packet(&mut buf).unwrap();
+      test::black_box(y);
+    });
+  }
 }
 
