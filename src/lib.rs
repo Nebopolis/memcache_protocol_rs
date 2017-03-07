@@ -9,10 +9,21 @@ extern crate futures;
 extern crate tokio_core;
 extern crate tokio_proto;
 extern crate tokio_service;
+extern crate native_tls;
+extern crate tokio_tls;
 
 use nom::*;
-use tokio_core::io::{Codec, EasyBuf};
+use tokio_core::io::{Codec, EasyBuf, Io, Framed};
+use tokio_proto::pipeline::ClientProto;
 use std::io;
+use std::mem::transmute;
+use tokio_core::net::TcpStream;
+use tokio_core::reactor::Core;
+use futures::Future;
+use native_tls::TlsConnector;
+use tokio_tls::TlsConnectorExt;
+
+
 
 pub struct MemcacheCodec;
 
@@ -27,8 +38,66 @@ impl Codec for MemcacheCodec {
   }
 
   fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
+    match msg.header {
+      HeaderType::Request(h) => {
+        buf.push(0x80);
+        buf.push(h.opcode as u8);
+        buf.extend_from_slice( unsafe { &transmute::<u16,[u8;2]>(h.key_length.to_be()) });
+        buf.push( unsafe { transmute(h.extras_length.to_be()) });
+        buf.push(0x00);
+        buf.push(0x00);
+        buf.push(0x00);
+        buf.extend_from_slice( unsafe { &transmute::<u32,[u8;4]>(h.body_length.to_be()) });
+        buf.extend_from_slice( unsafe { &transmute::<u32,[u8;4]>(h.opaque.to_be()) });
+        buf.extend_from_slice( unsafe { &transmute::<u64,[u8;8]>(h.cas.to_be()) });
+        buf.extend_from_slice(msg.extras.as_slice());
+        buf.extend_from_slice(msg.key.as_slice());
+        buf.extend_from_slice(msg.body.as_slice());
+      }
+      HeaderType::Response(h) => {
+        buf.push(0x81);
+        buf.push(h.opcode as u8);
+        buf.extend_from_slice( unsafe { &transmute::<u16,[u8;2]>(h.key_length.to_be()) });
+        buf.push( unsafe { transmute(h.extras_length.to_be()) });
+        buf.push(0x00);
+        buf.push(0x00);
+        buf.push(h.status as u8);
+        buf.extend_from_slice( unsafe { &transmute::<u32,[u8;4]>(h.body_length.to_be()) });
+        buf.extend_from_slice( unsafe { &transmute::<u32,[u8;4]>(h.opaque.to_be()) });
+        buf.extend_from_slice( unsafe { &transmute::<u64,[u8;8]>(h.cas.to_be()) });
+        buf.extend_from_slice(msg.extras.as_slice());
+        buf.extend_from_slice(msg.key.as_slice());
+        buf.extend_from_slice(msg.body.as_slice());
+        buf.extend_from_slice(msg.extras.as_slice());
+        buf.extend_from_slice(msg.key.as_slice());
+        buf.extend_from_slice(msg.body.as_slice());
+      }
+    };
     Ok(())
   }
+}
+
+pub struct LineProto;
+impl<T: Io + 'static> ClientProto<T> for LineProto {
+    /// For this protocol style, `Request` matches the codec `In` type
+    type Request = Packet;
+
+    /// For this protocol style, `Response` matches the coded `Out` type
+    type Response = Packet;
+
+    /// A bit of boilerplate to hook in the codec:
+    type Transport = Framed<T, MemcacheCodec>;
+    type BindTransport = Result<Self::Transport, io::Error>;
+    fn bind_transport(&self, io: T) -> Self::BindTransport {
+        Ok(io.framed(MemcacheCodec))
+    }
+}
+
+
+#[derive(Debug,PartialEq,Eq)]
+pub enum Magic {
+    Request = 0x80,
+    Response = 0x81
 }
 
 #[derive(Debug,PartialEq,Eq)]
@@ -84,7 +153,7 @@ pub enum Opcode {
 
 #[derive(Debug,PartialEq,Eq)]
 pub enum DataType {
-    Raw,
+    Raw = 0x00,
 }
 
 named!(request, tag!(b"\x80"));
@@ -273,9 +342,16 @@ pub fn packet(input: &mut EasyBuf) -> IResult<&[u8], Packet> {
 mod bench {
   use super::*;
   use test::Bencher;
+  use tokio_core::net::TcpStream;
+use tokio_core::reactor::Core;
+use std::net::ToSocketAddrs;
+use std::io::Write;
 
   #[bench]
   fn bench_parse_increment_request(b: &mut Bencher) {
+
+
+
     let mut packet_contents =
  vec![0x80, 0x05, 0x00, 0x07,
       0x14, 0x00, 0x00, 0x00,
@@ -290,16 +366,30 @@ mod bench {
       0x00, 0x00, 0x0e, 0x10,
       b'c', b'o', b'u', b'n',
       b't', b'e', b'r'];
-    let buffer: &mut EasyBuf = &mut EasyBuf::from(packet_contents);
-    let mut buf_vec = Vec::new();
-    for _ in 1..1000000 {
-      buf_vec.push(buffer.clone())
-    }
-    b.iter(|| {
-      let mut buf = buf_vec.pop().unwrap();
-      let y = packet(&mut buf).unwrap();
-      test::black_box(y);
+
+    let mut core = Core::new().unwrap();
+    let handle = core.handle();
+    let addr = "127.0.0.1:11211".to_socket_addrs().unwrap().next().unwrap();
+
+    let mut socket = TcpStream::connect(&addr, &handle).and_then(|mut socket| {
+              socket.write(packet_contents.clone().as_slice())
     });
+        core.run(socket).unwrap();
+
+            panic!("hi");
+
+
+
+   // let buffer: &mut EasyBuf = &mut EasyBuf::from(packet_contents);
+   //  let mut buf_vec = Vec::new();
+   //  for _ in 1..1000000 {
+   // //   buf_vec.push(buffer.clone())
+   //  }
+   //  b.iter(|| {
+   //    let mut buf = buf_vec.pop().unwrap();
+   //    let y = packet(&mut buf).unwrap();
+   //    test::black_box(y);
+   //  });
   }
 }
 
